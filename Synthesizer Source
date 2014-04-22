@@ -1,5 +1,5 @@
 /***********************************************************************
-; ECE 362 - Mini-Project C Source File - Fall 2013                    
+; ECE 362 - Mini-Project C Source File - Spring 2014                  
 ;***********************************************************************
 ;	 	   			 		  			 		  		
 ; Team ID: < 21 >
@@ -125,7 +125,7 @@ void main(void) {
 	EnableInterrupts;
 
 //////////////////////////////////////////////////////////////
-//;  START OF CODE FOR Fall 2013 MINI-PROJECT
+//;  START OF CODE FOR Spring 2014 MINI-PROJECT
 //////////////////////////////////////////////////////////////
   
   
@@ -224,5 +224,5 @@ void outchar(char ch) {
 
 
 /***********************************************************************
-; ECE 362 - Mini-Project C Source File - Fall 2013                         
+; ECE 362 - Mini-Project C Source File - Spring 2014                         
 ;***********************************************************************/
