@@ -1,0 +1,52 @@
+//  Initialize Port AD pins 4 and 5 for use as digital inputs
+	   DDRAD = 0; 		//program port AD for input mode
+         ATDDIEN = 0x30; //program AN4 and AN5 pins as digital inputs
+
+ ATDCTL2 = 0x80; // 
+ ATDCTL3 = 0b00010000; // two conversions per sequence
+ ATDCTL4 = 0x85; // single conversion sequence.
+ // initialize the frequencies of the tones.
+
+
+
+
+// start ATD conversion
+// start ATD conversion on inputs from accelerometer/potentiometer.
+
+void ADC_convert()
+{
+  ATDCTL5 = 0x14; // sets up ADC to perform a single conversion,
+                  //   2 conversions on a single channel,
+                  // and store the results ADR4h - ADR5h.
+		  // data stored are left justified
+  while( ATDSTAT0_SCF != 1){} // Wait for conversion to finish
+}
+
+// function: sample volume control
+
+// modify PWM output based on the sampled volume input 
+// volume input comes from atddr5
+void changeVol()
+{
+	multiplier = ( ( ATDDR5H * 5 )/ 256 ); // scale of 0 - 5 volts
+	// magnify/attenuate the output of the PWM based on the multiplier.
+}
+
+// change the frequency of a tone based on the accelerometer output (pitch bending).
+void changeFreq()
+{
+	// look at the tone that is currently being played
+	// change the freq within the range of that tone.
+	// freq = ATDDR4H * (upper bound freq of tone - lower bound freq of tone) / 256;
+	// add freq to the current freq of PWM
+}
+
+// modify PWM output based on pushbutton states
+void changeTones()
+{
+	// 	
+
+
+
+	
+	 
