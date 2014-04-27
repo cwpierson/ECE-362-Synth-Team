@@ -1,0 +1,421 @@
+/***********************************************************************
+; ECE 362 - Mini-Project C Source File - Fall 2013
+;***********************************************************************
+;
+; Team ID: < 21 >
+;
+; Project Name: < Digital Synthesizer >
+;
+; Team Members:
+;
+; - Team/Doc Leader: < Chris Pierson > Signature: ______________________
+;
+; - Software Leader: < Aiman Md Uslim> Signature: ______________________
+;
+; - Interface Leader: < Andrew Pawling > Signature: ______________________
+;
+; - Peripheral Leader: < John Sterrett > Signature: ______________________
+;
+;
+; Academic Honesty Statement: In signing above, we hereby certify that we
+; are the individuals who created this HC(S)12 source file and that we have
+; not copied the work of any other student (past or present) while completing
+; it. We understand that if we fail to honor this agreement, we will receive
+; a grade of ZERO and be subject to possible disciplinary action.
+;
+;***********************************************************************
+;
+; The objective of this Mini-Project is to .... < To act as an audio synthesizer, similar to how a musical
+; keyboard works, with other peripheral functions in addition. >
+;
+;
+;***********************************************************************
+;
+; List of project-specific success criteria (functionality that will be
+; demonstrated):
+;
+; 1. Single-octave, mono-phonic synthesizer
+;
+; 2. Accelerometer based pitch bending
+;
+; 3. Volume control
+;
+; 4. Audio effects such as distortion
+;
+; 5. Different audio waveform output capabilities
+;
+;***********************************************************************
+;
+; Date code started: < 4/21/2014 >
+;
+; Update history (add an entry every time a significant change is made):
+;
+; Date: < 4/22 > Name: < John Sterrett > Update: < 2 >
+;
+; Date: < 4/22 > Name: < Andrew Pawling > Update: < 3 >
+;
+; Date: < 4/22 > Name: < Andrew Pawling > Update: < 4 >
+;
+; Date: < 4/27 > Name: < John Sterrett, Andrew Pawling > Update: < 5 >
+;
+; Date: < 4/28 > Name: < Aiman Md Uslim> Update: < 6 >
+;
+;
+;***********************************************************************/
+#include <hidef.h> /* common defines and macros */
+#include "derivative.h" /* derivative-specific definitions */
+#include <mc9s12c32.h>
+//#include <math.h> //for sine funtion (On create project enable IEE32floating)
+
+// All funtions after main should be initialiezed here
+char inchar(void);
+void outchar(char x);
+void changeTone(void);
+
+// DEFINITIONS for MASK FOR the tones
+
+#define C4MASK 1 // bit 0
+#define DMASK 4 // bit 1
+#define EMASK 6 // bit 2
+#define FMASK 8 // bit 3
+#define GMASK 16 // bit 4
+#define AMASK 32 // bit 5
+#define BMASK 64 // bit 6
+#define C5MASK 128 // bit 7
+#define C#MASK 1 // bit 0 (second shift reg)
+#define D#MASK 4 // bit 1
+#define F#MASK 6 // bit 2
+#define G#MASK 8 // bit 3
+#define A#MASK 16 // bit 4
+
+// Variable declarations
+int prevpb7; //push button on AN7, toggle waveform option
+int pushb7flg;
+int wave7 = 0; //current wave option (0 = sine, 1 = triangle)
+int prevpb6; //push button on AN6, toggle effect option
+int pushb6flg;
+int effect6;//current effect option (0 = none, 1 = distortion)
+int accelcnt = 0; //counter for accelerometer sampling rate
+int accelflg; //flag for acceleromter atd conversion
+int accelread; //stores converted accelerometer value
+int wavect = 0;
+int vlmnsc = 5;
+int prev1 = 0; // the prev state of the first shift reg
+int prev2 = 0; // the prev state of the second shift reg
+
+//sine lookup table
+int sinelookup[100] = {125,133,141,148,156,164,171,178,185,192,
+198,205,211,216,221,226,231,235,238,241,
+244,246,248,249,250,250,250,249,248,246,
+244,241,238,235,231,226,221,216,211,205,
+198,192,185,178,171,164,156,148,141,133,
+125,117,109,102,94,86,79,72,65,58,
+52,45,39,34,29,24,19,15,12,9,
+6,4,2,1,0,0,0,1,2,4,
+6,9,12,15,19,24,29,34,39,45,
+52,58,65,72,79,86,94,102,109,117};
+  
+// ASCII character definitions
+int CR = 0x0D;//Return
+
+
+/***********************************************************************
+Initializations
+***********************************************************************/
+void initializations(void) {
+
+//; Set the PLL speed (bus clock = 24 MHz)
+  CLKSEL = CLKSEL & 0x80; //; disengage PLL from system
+  PLLCTL = PLLCTL | 0x40; //; turn on PLL
+  SYNR = 0x02; //; set PLL multiplier
+  REFDV = 0; //; set PLL divider
+  while (!(CRGFLG & 0x08)){ }
+  CLKSEL = CLKSEL | 0x80; //; engage PLL
+
+// Disable watchdog timer (COPCTL register)
+  COPCTL = 0x40 ; //COP off; RTI and COP stopped in BDM-mode
+
+// Initialize asynchronous serial port (SCI) for 9600 baud, no interrupts
+  SCIBDH = 0x00; //set baud rate to 9600
+  SCIBDL = 0x9C; //24,000,000 / 16 / 156 = 9600 (approx) dec=26
+  SCICR1 = 0x00; //$9C = 156
+  SCICR2 = 0x0C; //initialize SCI for program-driven operation
+  DDRB = 0x10; //set PB4 for output mode
+  PORTB = 0x10; //assert DTR pin on COM port
+
+//Initialize PWM
+  MODRR = 0x01; // PT0 used as PWM Ch 0 output
+PWME = 0x01; //enable PWM Ch 0
+PWMPOL = 0x01; //seactive high polarity
+  PWMCTL = 0x00; //no concatenate (8-bit)
+PWMCAE = 0x00; //left-aligned output mode
+PWMPER0 = 250; //set maximum 8-bit period
+PWMDTY0 = 0; //initially clear DUTY register proportional to the amplitude of waveform
+PWMCLK = 0x00; //select Clock A for Ch 0
+PWMPRCLK = 0x00; //sampling frequency = CLK/PWMPER0 = 24MHz/250 = 96kHz
+            
+// Initialize interrupts (2.048ms)
+RTICTL = 0x1F;
+  CRGINT = CRGINT | 0x80;
+
+/* Initialize TIM Ch 7 (TC7) for appropriate interrupt rate
+; Enable timer subsystem
+; Set channel 7 for output compare
+; Set appropriate pre-scale factor and enable counter reset after OC7
+; Set up channel 7 to generate 1 ms interrupt rate
+; Initially disable TIM Ch 7 interrupts
+*/
+
+  TSCR1_TEN = 1; //enable timer subsystem
+  TIOS_IOS7 = 1; //channel 7 output compare
+  
+  TSCR2_PR2 = 0; //prescale bits
+  TSCR2_PR1 = 1;
+  TSCR2_PR0 = 0; //sets prescale factor to 4 - CLK is 6MHz
+   
+  TSCR2_TCRE = 1; //enable counter reset after 0C7
+  TC7 = 229; // controls the frequency (starts at C4)
+  
+  TIE_C7I = 1; //intitially disable(no sound on start up), enable when any key pressed (set to 1 for test)
+
+// Port pin
+  DDRT = 0x7F;
+  DDRM = 0xFF;
+  DDRAD = 0x00;
+  PTM = 0x0;
+  ATDDIEN = 0xFF; //set AN0-AN7 to input
+//ATD initialization
+  ATDCTL2 = 0x80; //power up ATD
+  ATDCTL3 = 0x10; //set conversion length to 2
+  ATDCTL4 = 0x85; //8bit resolution and nominal sample time
+  
+//SPI Initializations
+
+  SPICR1 = SPICR1 | 0x58; // master mode
+  SPICR1_SSOE = 1; // slave select enabled
+  SPICR2_MODFEN = 1; // mode failure enable
+  
+// Initialize the SPI to baud rate of 6 Mbs
+  
+  SPIBR_SPPR0 = 0x01;
+  SPIBR_SPR0 = 0x00;
+
+}
+
+
+/***********************************************************************
+Main
+***********************************************************************/
+void main(void) {
+  DisableInterrupts;
+initializations();
+EnableInterrupts;
+
+//////////////////////////////////////////////////////////////
+//; START OF CODE FOR Fall 2013 MINI-PROJECT
+//////////////////////////////////////////////////////////////
+  
+  for(;;) {
+   // write code here
+   // Toggle waveform options
+   if(pushb7flg){
+     pushb7flg = 0;
+     wave7 = (wave7 + 1) % 4;
+   }
+   //Toggle effect options
+   if(pushb6flg){
+     pushb6flg = 0;
+     effect6 = (effect6 + 1) % 2;
+   }
+   
+   //sample accelerometer output
+   if(accelflg){
+     //sample AN4
+     
+     ATDCTL5 = 0x14; //single conversion on channel 4, unsigned
+     while((ATDSTAT0 & 0x80) != 0x80){
+     }
+     accelread = ATDDR4H; //store converted value
+                          //(0x55 for neutral (1.65V), 0xA9 for max (3.3V), 0x00 for min (0.0V)
+     //vlmnsc = ((ATDDR5H * 5)/256);
+   }
+
+  if(pushb7flg){
+     pushb7flg = 0;
+     wave7 = (wave7 + 1) % 2;
+   }
+   
+   // SPI Functions
+   // PM3 is the first 8 buttons shift reg
+   // PM2 is the second 5 buttons shift reg
+   while(SPISR_SPIF != 1){
+	}
+
+	if(PTM_PTM3 == 1){
+	prev1 = pushbstate;
+	pushbstate = SPIDR;
+	if(prev1 != pushbstate)
+	{	
+	changeTone();
+	}	
+	PTM_PTM3 = 0;
+	PTM_PTM2 = 1;
+
+	}
+	else{
+	prev2 = pushbstate;
+	pushbstate = SPIDR;	
+	if(prev2 != pushbstate)
+	{	
+	changeTone();
+	}
+	PTM_PTM2 = 0;
+	PTM_PTM3 = 1;
+	}
+  
+    _FEED_COP(); /* feeds the dog */
+  } /* loop forever */
+  /* please make sure that you never leave main */
+}
+
+void changeTone(void)
+{
+  if(pushbstate == 1){TIE_C7I = 0;}
+  else{
+  TIE_C7I = 1;
+  if(( C4MASK & pushbstate != C4MASK & prev1) && (C4MASK & pushbstate == 0)){TC7 = 229;}
+  if(DMASK & pushbstate != DMASK & prev1 && (DMASK & pushbstate == 0)){TC7 = 204;}
+  if(EMASK & pushbstate != EASK & prev1 && (EMASK & pushbstate == 0)){TC7 = 182;}
+  if(FMASK & pushbstate != FMASK & prev1 && (FMASK & pushbstate == 0)){TC7 = 172;}
+  if(GMASK & pushbstate != GMASK & prev1 && (GMASK & pushbstate == 0)){TC7 = 153;}
+  if(AMASK & pushbstate != AMASK & prev1 && (AMASK & pushbstate == 0)){TC7 = 136;}
+  if(BMASK & pushbstate != BMASK & prev1 && (BMASK & pushbstate == 0)){TC7 = 121;}
+  if(C5MASK & pushbstate != C5MASK & prev1 && (C5MASK & pushbstate == 0)){TC7 = 114;}
+
+  if(C#MASK & pushbstate != C#MASK & prev2 && (C#MASK & pushbstate == 0))){TC7 = 217;}
+  if(D#MASK & pushbstate != D#MASK & prev2 && (D#MASK & pushbstate == 0))){TC7 = 193;}
+  if(F#MASK & pushbstate != F#MASK & prev2 && (F#MASK & pushbstate == 0))){TC7 = 162;}
+  if(G#MASK & pushbstate != G#MASK & prev2 && (G#MASK & pushbstate == 0))){TC7 = 145;}
+  if(A#MASK & pushbstate != A#MASK & prev2 && (A#MASK & pushbstate == 0))){TC7 = 129;}
+  }
+}
+
+
+/***********************************************************************
+; RTI interrupt service routine: RTI_ISR
+;
+; Make sure you add it to the interrupts vector table (VECTOR 7 RTI_ISR)
+; under: Project Settings/Linker Files/Project.PRM
+;***********************************************************************/
+interrupt 7 void RTI_ISR(void)
+{
+   // set CRGFLG bit
+   CRGFLG = CRGFLG | 0x80;
+// No need to add anything in the .PRM file, the interrupt number is included above
+    //sample pushbutton states
+    //check for pb on AN7
+    //-- toggle waveform option if pressed
+
+    if(PTAD_PTAD7 == 0){
+      if(prevpb7 == 1){
+      //toggle waveform option (pushb7)
+      //0 for sine wave, 1 for triangle wave
+      pushb7flg = 1;
+      }
+    }
+    prevpb7 = PTAD_PTAD7;
+    
+    //check for pb on AN6
+    //-- toggle sound effect option (none/distortion/echo)
+     if(PTAD_PTAD6 == 0){
+      if(prevpb6 == 1){
+      //toggle waveform option (pushb7)
+        pushb6flg = 1;
+      }
+    }
+    prevpb6 = PTAD_PTAD6;
+    
+    accelcnt = (accelcnt + 1) % 25; //sets accelflg about every .05 sec
+    if(accelcnt == 0){
+      accelflg = 1;
+    }
+      
+
+}
+
+/***********************************************************************
+; TIM interrupt service routine (If needed!)
+;
+; Make sure you add it to the interrupts vector table (VECTOR 15 TIM_ISR)
+; under: Project Settings/Linker Files/Project.PRM
+;***********************************************************************/
+interrupt 15 void TIM_ISR(void)
+{
+  // set TFLG1 bit
+  TFLG1 = TFLG1 | 0x80;
+ 
+  if(wave7){
+        //triangle wave generation (works!)
+        if(wavect < 50){
+          PWMDTY0 = (PWMDTY0 + vlmnsc);
+          wavect = wavect + 1;
+        }
+        else if(wavect < 99){
+          PWMDTY0 = (PWMDTY0 - vlmnsc);
+          wavect = wavect + 1;
+        }
+        else{
+        //reset to zero
+        PWMDTY0 = 0;
+        wavect = 0;
+        }
+
+    }
+    else{
+      //sinewave generation
+      if(wavect < 99){
+        //PWMDTY0 = (int)(vlmnsc*50*((.5*sin(2.0*3.14159*(float)wavect/100.0)+.5))); //doesn't work
+        PWMDTY0 = (vlmnsc/5)*sinelookup[wavect];
+        wavect = wavect + 1;
+      }
+      else{
+        wavect = 0;
+        PWMDTY0 = 125;
+      }
+
+    }
+
+// No need to add anything in the .PRM file, the interrupt number is included above
+}
+
+
+
+/***********************************************************************
+; Character I/O Library Routines for 9S12C32
+;***********************************************************************
+; Name: inchar
+; Description: inputs ASCII character from SCI serial port and returns it
+;***********************************************************************/
+char inchar(void) {
+  /* receives character from the terminal channel */
+        while (!(SCISR1 & 0x20)); /* wait for input */
+    return SCIDRL;
+ 
+}
+
+/***********************************************************************
+; Name: outchar
+; Description: outputs ASCII character passed in outchar()
+; to the SCI serial port
+;***********************************************************************/
+void outchar(char ch) {
+  /* sends a character to the terminal channel */
+    while (!(SCISR1 & 0x80)); /* wait for output buffer empty */
+    SCIDRL = ch;
+}
+
+
+
+/***********************************************************************
+; ECE 362 - Mini-Project C Source File - Fall 2013
+;***********************************************************************/
